@@ -3398,9 +3398,9 @@ body.playback-mode .status-dot {
 .map-wrapper {
   width: 100%;
   height: 100%;
-  transition: transform 0.3s ease;
   position: relative;
   transform-origin: 0 0;
+  will-change: transform;
 }
 
 .map-cluster-canvas {
@@ -3497,10 +3497,16 @@ body.playback-mode .status-dot {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: transform 0.1s ease, background-color 0.2s ease;
 }
 
 .map-control-btn:hover {
   background: var(--border);
+}
+
+.map-control-btn:active {
+  transform: scale(0.92);
+  background: var(--surface-hover);
 }
 
 .time-slider {
@@ -3537,12 +3543,16 @@ body.playback-mode .status-dot {
   font-family: inherit;
   font-size: 9px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.1s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .time-btn:hover {
   border-color: var(--primary);
   color: var(--primary);
+}
+
+.time-btn:active {
+  transform: scale(0.95);
 }
 
 .time-btn.active {
@@ -12468,7 +12478,7 @@ a.prediction-link:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: transform 0.1s ease, border-color 0.2s ease;
   pointer-events: auto;
   position: relative;
   z-index: 1;
@@ -12477,6 +12487,10 @@ a.prediction-link:hover {
 .deckgl-controls .map-btn:hover {
   background: var(--bg);
   border-color: var(--green);
+}
+
+.deckgl-controls .map-btn:active {
+  transform: scale(0.92);
 }
 
 .deckgl-controls .view-selector {

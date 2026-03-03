@@ -148,6 +148,7 @@ export class MapComponent {
   private onTimeRangeChange?: (range: TimeRange) => void;
   private onLayerChange?: (layer: keyof MapLayers, enabled: boolean, source: 'user' | 'programmatic') => void;
   private layerZoomOverrides: Partial<Record<keyof MapLayers, boolean>> = {};
+  private layerVisibilityCache: Record<string, { isVisible: boolean; labelsVisible: boolean }> = {};
   private onStateChange?: (state: MapState) => void;
   private onCountryClick?: (country: CountryClickPayload) => void;
   private highlightedAssets: Record<AssetType, Set<string>> = {
@@ -669,30 +670,57 @@ export class MapComponent {
       );
     };
 
-    // Wheel zoom with smooth delta
+    // Wheel zoom with smooth delta and zoom-at-point
     this.container.addEventListener(
       'wheel',
       (e) => {
         e.preventDefault();
 
+        const rect = this.container.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const oldZoom = this.state.zoom;
+        let newZoom = oldZoom;
+
         // Check if this is a pinch gesture (ctrlKey is set for trackpad pinch)
         if (e.ctrlKey) {
           // Pinch-to-zoom on trackpad
           const zoomDelta = -e.deltaY * 0.01;
-          this.state.zoom = Math.max(1, Math.min(10, this.state.zoom + zoomDelta));
+          newZoom = Math.max(1, Math.min(10, oldZoom + zoomDelta));
         } else {
           // Two-finger scroll for pan, regular scroll for zoom
           if (Math.abs(e.deltaX) > Math.abs(e.deltaY) * 0.5 || e.shiftKey) {
             // Horizontal scroll or shift+scroll = pan
-            const panSpeed = 2 / this.state.zoom;
+            const panSpeed = 2 / oldZoom;
             this.state.pan.x -= e.deltaX * panSpeed;
             this.state.pan.y -= e.deltaY * panSpeed;
           } else {
             // Vertical scroll = zoom
             const zoomDelta = e.deltaY > 0 ? -0.15 : 0.15;
-            this.state.zoom = Math.max(1, Math.min(10, this.state.zoom + zoomDelta));
+            newZoom = Math.max(1, Math.min(10, oldZoom + zoomDelta));
           }
         }
+
+        if (newZoom !== oldZoom) {
+          // Zoom-at-point logic:
+          // We want the point under the mouse to remain at the same screen position.
+          // ScreenPos = centerOffset + pan * zoom
+          // pan = (ScreenPos - centerOffset) / zoom
+          // We want (mouseX - centerOffset) / oldZoom - oldPan = (mouseX - centerOffset) / newZoom - newPan
+          // newPan = oldPan + (mouseX - width/2) * (1/oldZoom - 1/newZoom)
+
+          const width = this.container.clientWidth;
+          const height = this.container.clientHeight;
+
+          const dx = (mouseX - width / 2) * (1 / oldZoom - 1 / newZoom);
+          const dy = (mouseY - height / 2) * (1 / oldZoom - 1 / newZoom);
+
+          this.state.pan.x -= dx;
+          this.state.pan.y -= dy;
+          this.state.zoom = newZoom;
+        }
+
         this.applyTransform();
       },
       { passive: false }
@@ -3320,7 +3348,7 @@ export class MapComponent {
     const tx = centerOffsetX + this.state.pan.x * zoom;
     const ty = centerOffsetY + this.state.pan.y * zoom;
 
-    this.wrapper.style.transform = `translate(${tx}px, ${ty}px) scale(${zoom})`;
+    this.wrapper.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(${zoom})`;
 
     // Set CSS variable for counter-scaling labels/markers
     // Labels: max 1.5x scale, so counter-scale = min(1.5, zoom) / zoom
@@ -3348,6 +3376,14 @@ export class MapComponent {
       const isVisible = enabled && (override || zoom >= thresholds.minZoom);
       const labelZoom = thresholds.showLabels ?? thresholds.minZoom;
       const labelsVisible = enabled && zoom >= labelZoom;
+
+      const cached = this.layerVisibilityCache[layer];
+      if (cached && cached.isVisible === isVisible && cached.labelsVisible === labelsVisible) {
+        return;
+      }
+
+      this.layerVisibilityCache[layer] = { isVisible, labelsVisible };
+
       const hiddenAttr = `data-layer-hidden-${layer}`;
       const labelsHiddenAttr = `data-labels-hidden-${layer}`;
 
