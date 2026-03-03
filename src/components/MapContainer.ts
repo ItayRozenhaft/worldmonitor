@@ -75,6 +75,11 @@ export class MapContainer {
   private useDeckGL: boolean;
   private isResizingInternal = false;
   private resizeObserver: ResizeObserver | null = null;
+  private onLayerChangeCb?: (layer: keyof MapLayers, enabled: boolean, source: 'user' | 'programmatic') => void;
+  private onStateChangeCb?: (state: MapContainerState) => void;
+  private onHotspotClickCb?: (hotspot: Hotspot) => void;
+  private onTimeRangeChangeCb?: (range: TimeRange) => void;
+  private onCountryClickCb?: (country: CountryClickPayload) => void;
 
   constructor(container: HTMLElement, initialState: MapContainerState) {
     this.container = container;
@@ -140,6 +145,13 @@ export class MapContainer {
     // Automatic resize on container change (fixes gaps on load/layout shift)
     if (typeof ResizeObserver !== 'undefined') {
       this.resizeObserver = new ResizeObserver(() => {
+        // Check for implementation switch (mobile/desktop breakpoint)
+        const isMobileNow = isMobileDevice();
+        if (isMobileNow !== this.isMobile) {
+          this.switchImplementation(isMobileNow);
+          return;
+        }
+
         // Skip if we are already handling resize manually via drag handlers
         if (this.isResizingInternal) return;
         this.resize();
@@ -162,6 +174,55 @@ export class MapContainer {
       this.deckGLMap?.resize();
     } else {
       this.svgMap?.resize();
+    }
+  }
+
+  private switchImplementation(isMobile: boolean): void {
+    console.log(`[MapContainer] Switching implementation: isMobile=${isMobile}`);
+    const prevState = this.getState();
+
+    // Destroy current instance
+    if (this.deckGLMap) {
+      this.deckGLMap.destroy();
+      this.deckGLMap = null;
+    }
+    if (this.svgMap) {
+      this.svgMap.destroy();
+      this.svgMap = null;
+    }
+
+    this.isMobile = isMobile;
+    this.useDeckGL = this.shouldUseDeckGL();
+    this.container.innerHTML = '';
+
+    if (this.useDeckGL) {
+      this.container.classList.remove('svg-mode');
+      this.container.classList.add('deckgl-mode');
+      this.deckGLMap = new DeckGLMap(this.container, {
+        ...prevState,
+        view: prevState.view as DeckMapView,
+      });
+      // Restore callbacks
+      if (this.onHotspotClickCb) this.deckGLMap.setOnHotspotClick(this.onHotspotClickCb);
+      if (this.onTimeRangeChangeCb) this.deckGLMap.setOnTimeRangeChange(this.onTimeRangeChangeCb);
+      if (this.onLayerChangeCb) this.deckGLMap.setOnLayerChange(this.onLayerChangeCb);
+      if (this.onStateChangeCb) {
+        const cb = this.onStateChangeCb;
+        this.deckGLMap.setOnStateChange((state) => {
+          cb({ ...state, view: state.view as MapView });
+        });
+      }
+      if (this.onCountryClickCb) this.deckGLMap.setOnCountryClick(this.onCountryClickCb);
+    } else {
+      this.container.classList.remove('deckgl-mode');
+      this.container.classList.add('svg-mode');
+      this.svgMap = new MapComponent(this.container, prevState);
+      // Restore callbacks
+      if (this.onHotspotClickCb) this.svgMap.onHotspotClicked(this.onHotspotClickCb);
+      if (this.onTimeRangeChangeCb) this.svgMap.onTimeRangeChanged(this.onTimeRangeChangeCb);
+      if (this.onLayerChangeCb) this.svgMap.setOnLayerChange(this.onLayerChangeCb);
+      if (this.onStateChangeCb) this.svgMap.onStateChanged(this.onStateChangeCb);
+      if (this.onCountryClickCb) this.svgMap.setOnCountryClick(this.onCountryClickCb);
     }
   }
 
@@ -458,6 +519,7 @@ export class MapContainer {
 
   // Callback setters - MapComponent uses different names
   public onHotspotClicked(callback: (hotspot: Hotspot) => void): void {
+    this.onHotspotClickCb = callback;
     if (this.useDeckGL) {
       this.deckGLMap?.setOnHotspotClick(callback);
     } else {
@@ -466,6 +528,7 @@ export class MapContainer {
   }
 
   public onTimeRangeChanged(callback: (range: TimeRange) => void): void {
+    this.onTimeRangeChangeCb = callback;
     if (this.useDeckGL) {
       this.deckGLMap?.setOnTimeRangeChange(callback);
     } else {
@@ -474,6 +537,7 @@ export class MapContainer {
   }
 
   public setOnLayerChange(callback: (layer: keyof MapLayers, enabled: boolean, source: 'user' | 'programmatic') => void): void {
+    this.onLayerChangeCb = callback;
     if (this.useDeckGL) {
       this.deckGLMap?.setOnLayerChange(callback);
     } else {
@@ -482,6 +546,7 @@ export class MapContainer {
   }
 
   public onStateChanged(callback: (state: MapContainerState) => void): void {
+    this.onStateChangeCb = callback;
     if (this.useDeckGL) {
       this.deckGLMap?.setOnStateChange((state) => {
         callback({ ...state, view: state.view as MapView });
@@ -628,6 +693,7 @@ export class MapContainer {
   }
 
   public onCountryClicked(callback: (country: CountryClickPayload) => void): void {
+    this.onCountryClickCb = callback;
     if (this.useDeckGL) {
       this.deckGLMap?.setOnCountryClick(callback);
     } else {
